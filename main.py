@@ -16,6 +16,7 @@ DATA_URL = (
 LAST_YEAR = 2025      # 수업의 기준 기간: 2025년까지
 MIN_DAYS = 300        # 관측일이 이보다 적은 해는 제외
 SLIDER_MIN, SLIDER_MAX = 1900, 2100
+RECENT_N = 20         # '최근 N년' 비교에 쓸 해의 개수
 
 # 따뜻한 색 팔레트
 CREAM = "#FFF8EF"
@@ -43,6 +44,30 @@ st.markdown(
     .big-card .label {{ font-size: 1.1rem; color: {BROWN}; }}
     .big-card .value {{ font-size: 4.2rem; font-weight: 800; color: {RED}; line-height: 1.2; }}
     .big-card .sub {{ font-size: 0.95rem; color: #8A6A52; }}
+    .slope-card {{
+        background: linear-gradient(135deg, #FFE2BF, {SAND});
+        border: 2px solid {ORANGE};
+        border-radius: 20px;
+        padding: 24px 16px;
+        text-align: center;
+        margin: 8px 0 12px 0;
+    }}
+    .slope-card .label {{ font-size: 1.05rem; color: {BROWN}; }}
+    .slope-card .value {{ font-size: 3.6rem; font-weight: 800; color: {RED}; line-height: 1.25; }}
+    .slope-card .sub {{ font-size: 0.9rem; color: #8A6A52; }}
+    .cmp-card {{
+        background-color: {SAND};
+        border: 1.5px solid {GOLD};
+        border-radius: 16px;
+        padding: 18px 10px;
+        text-align: center;
+        height: 100%;
+    }}
+    .cmp-card.recent {{ background-color: #FFE2BF; border-color: {ORANGE}; }}
+    .cmp-card .label {{ font-size: 1rem; font-weight: 700; color: {BROWN}; }}
+    .cmp-card .period {{ font-size: 0.85rem; color: #8A6A52; margin-bottom: 4px; }}
+    .cmp-card .value {{ font-size: 2.4rem; font-weight: 800; color: {RED}; line-height: 1.3; }}
+    .cmp-card .sub {{ font-size: 0.85rem; color: #8A6A52; }}
     div[data-testid="stMetric"] {{
         background-color: {SAND};
         border-radius: 14px;
@@ -101,6 +126,16 @@ years = yearly["연도"].to_numpy(dtype=float)
 temps = yearly["연평균기온"].to_numpy(dtype=float)
 slope, intercept, r = fit_line(years, temps)
 
+# 최근 N년(남은 해 중 가장 최근 N개)만으로 구한 직선
+recent = yearly.tail(RECENT_N)
+recent_years = recent["연도"].to_numpy(dtype=float)
+recent_slope, recent_intercept, recent_r = fit_line(
+    recent_years, recent["연평균기온"].to_numpy(dtype=float)
+)
+recent_start, recent_end = int(recent["연도"].min()), int(recent["연도"].max())
+per100 = slope * 100                 # 100년에 오르는 온도(전체 기간)
+recent_per100 = recent_slope * 100   # 100년에 오르는 온도(최근 N년)
+
 n_years = len(yearly)
 start_year = int(yearly["연도"].min())
 end_year = int(yearly["연도"].max())
@@ -138,11 +173,59 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
+# 기울기: 100년에 몇 도 오르는가
+st.subheader("100년에 몇 도 오를까?")
+direction = "오르는" if per100 >= 0 else "내리는"
+st.markdown(
+    f"""
+    <div class="slope-card">
+        <div class="label">직선의 기울기를 100년으로 바꾸면</div>
+        <div class="value">100년에 {per100:+.2f} °C</div>
+        <div class="sub">{start_year}~{end_year}년 전체 자료로 구한 직선 기준 · 해마다 {slope:+.4f} °C씩 {direction} 속도예요</div>
+    </div>
+    """,
+    unsafe_allow_html=True,
+)
+
+# 전체 기간 vs 최근 N년 비교
+st.markdown(f"##### 전체 기간 vs 최근 {RECENT_N}년")
+col_all, col_recent = st.columns(2)
+col_all.markdown(
+    f"""
+    <div class="cmp-card">
+        <div class="label">전체 기간</div>
+        <div class="period">{start_year}~{end_year}년 · {n_years}개 해</div>
+        <div class="value">{per100:+.2f} °C</div>
+        <div class="sub">100년당 · 상관계수 r = {r:.3f}</div>
+    </div>
+    """,
+    unsafe_allow_html=True,
+)
+col_recent.markdown(
+    f"""
+    <div class="cmp-card recent">
+        <div class="label">최근 {RECENT_N}년</div>
+        <div class="period">{recent_start}~{recent_end}년 · {len(recent)}개 해</div>
+        <div class="value">{recent_per100:+.2f} °C</div>
+        <div class="sub">100년당 · 상관계수 r = {recent_r:.3f}</div>
+    </div>
+    """,
+    unsafe_allow_html=True,
+)
+
+ratio_text = ""
+if per100 > 0 and recent_per100 > 0:
+    ratio_text = f" 최근 {RECENT_N}년의 기울기는 전체 기간의 약 {recent_per100 / per100:.1f}배예요."
+st.caption(
+    f"두 값의 차이는 {recent_per100 - per100:+.2f} °C/100년이에요.{ratio_text} "
+    f"다만 최근 {RECENT_N}년은 점이 {len(recent)}개뿐이라 해마다의 들쭉날쭉한 변화에 기울기가 크게 흔들릴 수 있어요."
+)
+
 # 상관계수
 st.subheader("상관계수와 회귀 직선")
 m1, m2 = st.columns(2)
-m1.metric("상관계수 r", f"{r:.3f}")
-m2.metric("직선의 식", f"기온 = {slope:.4f} × 연도 {intercept:+.2f}")
+m1.metric("상관계수 r (전체 기간)", f"{r:.3f}")
+m2.metric("직선의 식 (전체 기간)", f"기온 = {slope:.4f} × 연도 {intercept:+.2f}")
 
 # 그래프 (plotly)
 x_lo = min(start_year, sel_year)
@@ -166,9 +249,20 @@ fig.add_trace(
         x=line_x,
         y=line_y,
         mode="lines",
-        name="회귀 직선",
+        name="회귀 직선(전체 기간)",
         line=dict(color=RED, width=3),
         hovertemplate="%{x}년<br>직선 값 %{y:.2f} °C<extra></extra>",
+    )
+)
+recent_line_x = np.array([recent_start, recent_end], dtype=float)
+fig.add_trace(
+    go.Scatter(
+        x=recent_line_x,
+        y=recent_slope * recent_line_x + recent_intercept,
+        mode="lines",
+        name=f"직선(최근 {RECENT_N}년)",
+        line=dict(color=BROWN, width=3, dash="dash"),
+        hovertemplate="%{x}년<br>최근 직선 값 %{y:.2f} °C<extra></extra>",
     )
 )
 fig.add_trace(
